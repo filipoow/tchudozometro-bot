@@ -333,7 +333,7 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 
 ### 📌 Comando para ver o nível ###
 @tree.command(name="level", description="Mostra seu XP e nível no servidor")
-async def meunivel(interaction: discord.Interaction) -> None:
+async def level(interaction: discord.Interaction) -> None:
     """Mostra o nível e XP do usuário."""
     guild_id = str(interaction.guild_id)
     user_id = str(interaction.user.id)
