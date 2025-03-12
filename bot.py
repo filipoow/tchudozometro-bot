@@ -201,14 +201,22 @@ async def daily_summary() -> None:
 async def ranking(interaction: discord.Interaction, periodo: Optional[str] = "semana") -> None:
     """Mostra o ranking de quem ficou mais tempo em call."""
     guild_id = str(interaction.guild_id)
-    periodo = periodo.lower()
 
     if guild_id not in user_data:
         await interaction.response.send_message("Nenhum dado registrado ainda! 😢", ephemeral=True)
         return
 
     ranking_data = user_data[guild_id]
-    sorted_users = sorted(ranking_data.items(), key=lambda x: x[1], reverse=True)
+
+    # 📌 **Filtrar apenas os IDs numéricos dos usuários**
+    valid_users = {user_id: tempo for user_id, tempo in ranking_data.items() if user_id.isdigit()}
+
+    if not valid_users:
+        await interaction.response.send_message("Nenhum usuário válido encontrado para o ranking. 😢", ephemeral=True)
+        return
+
+    # Ordenar os usuários pelo tempo em call
+    sorted_users = sorted(valid_users.items(), key=lambda x: x[1], reverse=True)
 
     embed = discord.Embed(
         title=f"🏆 Ranking - {periodo.capitalize()}",
@@ -217,7 +225,7 @@ async def ranking(interaction: discord.Interaction, periodo: Optional[str] = "se
     )
 
     for i, (user_id, tempo) in enumerate(sorted_users[:10], start=1):
-        user = await bot.fetch_user(int(user_id))
+        user = await bot.fetch_user(int(user_id))  # Agora pegamos somente IDs numéricos válidos
         embed.add_field(name=f"{i}️⃣ {user.name}", value=f"🕒 {format_time(tempo)}", inline=False)
 
     await interaction.response.send_message(embed=embed)
