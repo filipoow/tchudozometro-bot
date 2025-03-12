@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import os
 from typing import Optional
 
-# Importa funções auxiliares
+# Importa funções auxiliares (ajuste para o seu projeto)
 from utils.database import load_server_settings, save_server_settings, load_user_data, save_user_data
 from utils.helpers import get_channel, format_time
 
@@ -20,16 +20,20 @@ TOKEN: Optional[str] = os.getenv("DISCORD_TOKEN")
 server_settings: dict[str, dict] = load_server_settings()
 user_data: dict[str, dict[str, float]] = load_user_data()
 
-# Configurar intents para evitar erro de Privileged Intents
+# Configurar intents (IMPORTANTE: ativar voice_states = True)
 intents: discord.Intents = discord.Intents.default()
 intents.typing = False
 intents.presences = True
 intents.members = True
+intents.voice_states = True  # Para receber eventos de voz
 
 bot: commands.Bot = commands.Bot(command_prefix="!", intents=intents)
+tree = bot.tree  # Slash commands
 
-# Registrar os slash commands
-tree = bot.tree
+
+# --------------------------------------------------
+#             CONFIGURAÇÃO INICIAL DO BOT
+# --------------------------------------------------
 
 @bot.event
 async def on_ready() -> None:
@@ -44,11 +48,13 @@ async def on_ready() -> None:
 
     # Iniciar as tarefas agendadas
     schedule_poll.start()
-    schedule_summary.start()  # Corrigido: Adicionando a tarefa do resumo
+    schedule_summary.start()
+    award_tchudu_master.start()  # Não esqueça de iniciar a tarefa de premiação
 
 class RoleSelectionView(View):
+    """Janela interativa (View) para escolher cargo."""
     def __init__(self, roles: list[discord.Role], owner_id: int):
-        super().__init__(timeout=60)  # Expira após 60 segundos
+        super().__init__(timeout=60)
         self.selected_role: Optional[discord.Role] = None
         self.owner_id = owner_id  # Apenas o dono pode clicar
         self.roles = roles
@@ -61,7 +67,9 @@ class RoleSelectionView(View):
     def create_callback(self, role: discord.Role):
         async def callback(interaction: discord.Interaction):
             if interaction.user.id != self.owner_id:
-                await interaction.response.send_message("❌ Apenas o dono do servidor pode selecionar o cargo!", ephemeral=True)
+                await interaction.response.send_message(
+                    "❌ Apenas o dono do servidor pode selecionar o cargo!", ephemeral=True
+                )
                 return
 
             self.selected_role = role
@@ -97,7 +105,11 @@ async def setup_server(guild: discord.Guild) -> None:
     await owner.send(embed=embed_channel)
 
     def check(m: discord.Message) -> bool:
-        return m.author == owner and m.content.isdigit() and 1 <= int(m.content) <= len(text_channels)
+        return (
+            m.author == owner
+            and m.content.isdigit()
+            and 1 <= int(m.content) <= len(text_channels)
+        )
 
     try:
         msg = await bot.wait_for('message', check=check, timeout=60)
@@ -122,7 +134,9 @@ async def setup_server(guild: discord.Guild) -> None:
     await view.wait()  # Aguarda a resposta do dono do servidor
 
     if view.selected_role is None:
-        await message.edit(content="❌ Tempo esgotado! Nenhum cargo foi selecionado.", embed=None, view=None)
+        await message.edit(
+            content="❌ Tempo esgotado! Nenhum cargo foi selecionado.", embed=None, view=None
+        )
         return
 
     role_id = view.selected_role.id
@@ -131,8 +145,8 @@ async def setup_server(guild: discord.Guild) -> None:
     server_settings[guild_id] = {
         "channel_id": channel_id,
         "role_id": role_id,
-        "min_call_time": 3600,
-        "weekly_required_time": 7200
+        "min_call_time": 3600,       # 1 hora
+        "weekly_required_time": 7200 # 2 horas
     }
     save_server_settings(server_settings)
 
@@ -147,8 +161,13 @@ async def setup_server(guild: discord.Guild) -> None:
 
     await owner.send(embed=embed_confirm)
 
+
+# --------------------------------------------------
+#                 TAREFAS AGENDADAS
+# --------------------------------------------------
+
 def next_run_time(hour: int, minute: int) -> float:
-    """Calcula o tempo restante para a próxima execução."""
+    """Calcula o tempo restante para a próxima execução (em segundos)."""
     now = datetime.now()
     next_run = datetime(now.year, now.month, now.day, hour, minute)
     if now >= next_run:
@@ -192,21 +211,40 @@ async def daily_summary() -> None:
     for guild_id, settings in server_settings.items():
         channel = get_channel(bot, guild_id)
         if channel:
-            eitcha_count = sum(1 for user_id, time in user_data.get(str(guild_id), {}).items() if time >= 3600)
-            tchudu_bem_count = sum(1 for user_id, time in user_data.get(str(guild_id), {}).items() if time < 3600)
+            # Filtra apenas as chaves que começam com "time_"
+            time_data = {
+                uid: t for uid, t in user_data.get(guild_id, {}).items() 
+                if uid.startswith("time_")
+            }
+
+            # Conta quantos ficaram >= 1h (3600s) e quantos ficaram < 1h
+            eitcha_count = sum(1 for _, time_val in time_data.items() if time_val >= 3600)
+            tchudu_bem_count = sum(1 for _, time_val in time_data.items() if 0 < time_val < 3600)
 
             embed = discord.Embed(
                 title="📊 **Resumo do Dia**",
                 description="Aqui está o desempenho de hoje! ⏳",
                 color=discord.Color.green()
             )
-            embed.add_field(name="🔥 EiTCHAAAAAAA", value=f"🏆 {eitcha_count} jogadores ficaram mais de 1h!", inline=False)
-            embed.add_field(name="😴 TCHUDU BEM.... (;-;)", value=f"💤 {tchudu_bem_count} passaram menos de 1h.", inline=False)
+            embed.add_field(
+                name="🔥 EiTCHAAAAAAA",
+                value=f"🏆 {eitcha_count} jogadores ficaram mais de 1h!",
+                inline=False
+            )
+            embed.add_field(
+                name="😴 TCHUDU BEM.... (;-;)",
+                value=f"💤 {tchudu_bem_count} passaram menos de 1h.",
+                inline=False
+            )
             embed.set_footer(text="📅 Estatísticas atualizadas diariamente às 23:00.")
 
             await channel.send(embed=embed)
 
-### 📌 Comando !ranking ###
+
+# --------------------------------------------------
+#                   RANKING
+# --------------------------------------------------
+
 @tree.command(name="ranking", description="Mostra quem ficou mais tempo em call")
 async def ranking(interaction: discord.Interaction, periodo: Optional[str] = "semana") -> None:
     """Mostra o ranking de quem ficou mais tempo em call."""
@@ -216,17 +254,19 @@ async def ranking(interaction: discord.Interaction, periodo: Optional[str] = "se
         await interaction.response.send_message("Nenhum dado registrado ainda! 😢", ephemeral=True)
         return
 
-    ranking_data = user_data[guild_id]
+    # Filtra apenas chaves "time_{user_id}"
+    time_data = {
+        uid[5:]: t  # remove "time_" do começo para pegar só o ID
+        for uid, t in user_data[guild_id].items()
+        if uid.startswith("time_")
+    }
 
-    # 📌 **Filtrar apenas os IDs numéricos dos usuários**
-    valid_users = {user_id: tempo for user_id, tempo in ranking_data.items() if user_id.isdigit()}
-
-    if not valid_users:
+    if not time_data:
         await interaction.response.send_message("Nenhum usuário válido encontrado para o ranking. 😢", ephemeral=True)
         return
 
-    # Ordenar os usuários pelo tempo em call
-    sorted_users = sorted(valid_users.items(), key=lambda x: x[1], reverse=True)
+    # Ordenar os usuários pelo tempo em call (descendente)
+    sorted_users = sorted(time_data.items(), key=lambda x: x[1], reverse=True)
 
     embed = discord.Embed(
         title=f"🏆 Ranking - {periodo.capitalize()}",
@@ -234,16 +274,21 @@ async def ranking(interaction: discord.Interaction, periodo: Optional[str] = "se
         color=discord.Color.gold()
     )
 
-    for i, (user_id, tempo) in enumerate(sorted_users[:10], start=1):
-        user = await bot.fetch_user(int(user_id))  # Agora pegamos somente IDs numéricos válidos
+    # Mostra top 10
+    for i, (u_id, tempo) in enumerate(sorted_users[:10], start=1):
+        user = await bot.fetch_user(int(u_id))
         embed.add_field(name=f"{i}️⃣ {user.name}", value=f"🕒 {format_time(tempo)}", inline=False)
 
     await interaction.response.send_message(embed=embed)
 
-### 📌 Premiação automática: "Tchudu Bem Master" ###
+
+# --------------------------------------------------
+#            PREMIAÇÃO TCHUDU BEM MASTER
+# --------------------------------------------------
+
 @tasks.loop(hours=24)
 async def award_tchudu_master() -> None:
-    """A cada mês, premia automaticamente quem menos jogou."""
+    """A cada mês, premia automaticamente quem menos jogou (1º dia do mês)."""
     now = datetime.now()
     if now.day != 1:  # Somente no primeiro dia do mês
         return
@@ -252,10 +297,20 @@ async def award_tchudu_master() -> None:
         if guild_id not in user_data:
             continue
 
+        # Filtra apenas chaves "time_{user_id}"
+        time_data = {
+            uid: t for uid, t in user_data[guild_id].items() if uid.startswith("time_")
+        }
+        if not time_data:
+            continue
+
         # Identifica o usuário com MENOS tempo de call
-        min_user = min(user_data[guild_id], key=user_data[guild_id].get, default=None)
+        min_user = min(time_data, key=time_data.get, default=None)
         if not min_user:
             continue
+
+        # "min_user" é algo como "time_123456", então pegamos só o ID
+        actual_min_user_id = min_user[5:]
 
         guild = bot.get_guild(int(guild_id))
         if not guild:
@@ -265,7 +320,7 @@ async def award_tchudu_master() -> None:
         if not role:
             continue
 
-        member = guild.get_member(int(min_user))
+        member = guild.get_member(int(actual_min_user_id))
         if not member:
             continue
 
@@ -288,58 +343,81 @@ async def award_tchudu_master() -> None:
         if channel:
             await channel.send(embed=embed)
 
-# Armazena usuários ativos e suas tarefas de XP
-active_users: dict[str, asyncio.Task] = {}
 
-async def update_xp(guild_id: str, user_id: str):
-    """Atualiza XP a cada segundo enquanto o usuário estiver em call."""
-    while user_id in active_users:
-        user_data.setdefault(guild_id, {}).setdefault(f"xp_{user_id}", 0)
-        user_data[guild_id][f"xp_{user_id}"] += 1  # Ganha 1 XP por segundo
+# --------------------------------------------------
+#         SISTEMA DE XP / NÍVEIS POR TEMPO EM CALL
+# --------------------------------------------------
 
-        # Sistema de níveis (100 XP = 1 nível)
-        level_atual = user_data[guild_id][f"xp_{user_id}"] // 100
-        nivel_anterior = user_data[guild_id].get(f"nivel_{user_id}", 0)
-
-        if level_atual > nivel_anterior:
-            user_data[guild_id][f"nivel_{user_id}"] = level_atual
-
-            embed = discord.Embed(
-                title="🎉 Subiu de nível!",
-                description=f"Parabéns <@{user_id}>, você agora é **Nível {level_atual}**!",
-                color=discord.Color.green()
-            )
-            channel = get_channel(bot, guild_id)
-            if channel:
-                await channel.send(embed=embed)
-
-        await asyncio.sleep(1)  # Aguarda 1 segundo antes de adicionar mais XP
-
-### 📌 Sistema de XP e níveis ###
 @bot.event
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
-    """Registra entrada e saída da call e inicia/parar o sistema de XP por segundo."""
+    """Registra tempo em call e dá XP baseado no tempo."""
     guild_id = str(member.guild.id)
     user_id = str(member.id)
 
-    if after.channel and not before.channel:  # Entrou na call
-        if user_id not in active_users:
-            active_users[user_id] = asyncio.create_task(update_xp(guild_id, user_id))
+    # [DEBUG opcional] print(f"[DEBUG] {member} entrou/saiu de call. Before={before.channel}, After={after.channel}")
 
-    elif before.channel and not after.channel:  # Saiu da call
-        if user_id in active_users:
-            active_users[user_id].cancel()  # Cancela a tarefa do XP
-            del active_users[user_id]
+    # Se entrou na call (after.channel != None) e não estava em call antes
+    if after.channel and not before.channel:
+        # Salva o timestamp de entrada na call
+        user_data.setdefault(guild_id, {})[f"join_{user_id}"] = datetime.utcnow().timestamp()
 
-### 📌 Comando para ver o nível ###
+    # Se saiu da call (before.channel != None) e não entrou em outra call (after.channel == None)
+    elif before.channel and not after.channel:
+        join_key = f"join_{user_id}"
+        join_time = user_data[guild_id].pop(join_key, None)
+        if join_time:
+            # Calcula a duração em segundos
+            duration = datetime.utcnow().timestamp() - join_time
+
+            # Soma no tempo total
+            time_key = f"time_{user_id}"
+            total_time = user_data[guild_id].get(time_key, 0) + duration
+            user_data[guild_id][time_key] = total_time
+
+            # Cálculo de XP: 10 XP a cada 10 minutos (600s) - AJUSTE se quiser testar mais rápido
+            xp_ganho = int(duration // 600) * 10
+            xp_key = f"xp_{user_id}"
+            xp_atual = user_data[guild_id].get(xp_key, 0) + xp_ganho
+            user_data[guild_id][xp_key] = xp_atual
+
+            # Nível = xp // 100 (por exemplo, 100 XP = Nível 1)
+            nivel_key = f"nivel_{user_id}"
+            nivel_anterior = user_data[guild_id].get(nivel_key, 0)
+            nivel_atual = xp_atual // 100
+
+            # Se subiu de nível
+            if nivel_atual > nivel_anterior:
+                user_data[guild_id][nivel_key] = nivel_atual
+
+                # Anuncia o level up
+                embed = discord.Embed(
+                    title="🎉 Subiu de nível!",
+                    description=f"Parabéns {member.mention}, você agora é **Nível {nivel_atual}**!",
+                    color=discord.Color.green()
+                )
+                channel = get_channel(bot, guild_id)
+                if channel:
+                    await channel.send(embed=embed)
+
+            # Salva as alterações no JSON
+            save_user_data(user_data)
+
+
+# --------------------------------------------------
+#         COMANDO SLASH: /level (ou /level)
+# --------------------------------------------------
+
 @tree.command(name="level", description="Mostra seu XP e nível no servidor")
 async def level(interaction: discord.Interaction) -> None:
     """Mostra o nível e XP do usuário."""
     guild_id = str(interaction.guild_id)
     user_id = str(interaction.user.id)
 
-    xp_total = user_data.get(guild_id, {}).get(f"xp_{user_id}", 0)
-    nivel = user_data.get(guild_id, {}).get(f"nivel_{user_id}", 0)
+    xp_key = f"xp_{user_id}"
+    nivel_key = f"nivel_{user_id}"
+
+    xp_total = user_data.get(guild_id, {}).get(xp_key, 0)
+    nivel = user_data.get(guild_id, {}).get(nivel_key, 0)
 
     embed = discord.Embed(
         title="📊 Seu progresso",
@@ -349,7 +427,11 @@ async def level(interaction: discord.Interaction) -> None:
 
     await interaction.response.send_message(embed=embed)
 
-# Iniciar o bot
+
+# --------------------------------------------------
+#                INICIAR O BOT
+# --------------------------------------------------
+
 if TOKEN:
     bot.run(TOKEN)
 else:
