@@ -20,9 +20,9 @@ user_data: dict[str, dict[str, float]] = load_user_data()
 
 # Configurar intents para evitar erro de Privileged Intents
 intents: discord.Intents = discord.Intents.default()
-intents.typing = False  # Desativado para economizar recursos
-intents.presences = True  # Necessário para detectar status de membros
-intents.members = True  # Necessário para acessar lista de membros
+intents.typing = False
+intents.presences = True
+intents.members = True
 
 bot: commands.Bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -31,13 +31,20 @@ async def on_ready() -> None:
     """Executado quando o bot está pronto."""
     print(f'✅ Bot {bot.user.name} está online!' if bot.user else "Bot está online!")
     for guild in bot.guilds:
-        if str(guild.id) not in server_settings:
-            await setup_server(guild)  # Configurar servidores automaticamente
+        if str(guild.id) not in server_settings:  # Somente se o servidor não estiver configurado
+            await setup_server(guild)
     daily_poll.start()
     daily_summary.start()
 
 async def setup_server(guild: discord.Guild) -> None:
-    """Configura automaticamente um novo servidor."""
+    """Configura automaticamente um novo servidor apenas se ele ainda não estiver salvo."""
+    guild_id = str(guild.id)
+    
+    # Se o servidor já está salvo, não faz nada
+    if guild_id in server_settings:
+        print(f"✅ Servidor {guild.name} já está configurado. Pulando setup.")
+        return
+
     owner: Optional[discord.Member] = guild.owner
     if not owner:
         return
@@ -77,7 +84,7 @@ async def setup_server(guild: discord.Guild) -> None:
         role_id = roles[0].id  # Usa o primeiro cargo como padrão
 
     # Salvar configurações no JSON
-    server_settings[str(guild.id)] = {
+    server_settings[guild_id] = {
         "channel_id": channel_id,
         "role_id": role_id,
         "min_call_time": 3600,
