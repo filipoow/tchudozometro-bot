@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 import asyncio
 from datetime import datetime, timedelta
@@ -26,10 +27,16 @@ intents.members = True
 
 bot: commands.Bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Registrar os slash commands
+tree = bot.tree
+
 @bot.event
 async def on_ready() -> None:
     """Executado quando o bot está pronto."""
     print(f'✅ Bot {bot.user.name} está online!' if bot.user else "Bot está online!")
+    await bot.tree.sync()
+    print("📌 Slash commands sincronizados!")
+
     for guild in bot.guilds:
         if str(guild.id) not in server_settings:
             await setup_server(guild)
@@ -190,22 +197,19 @@ async def daily_summary() -> None:
             await channel.send(embed=embed)
 
 ### 📌 Comando !ranking ###
-@bot.command(name="ranking")
-async def ranking(ctx: commands.Context, periodo: Optional[str] = "semana") -> None:
-    """
-    Mostra o ranking de quem ficou mais tempo em call na semana ou no mês.
-    Uso: !ranking [semana/mês]
-    """
-    guild_id = str(ctx.guild.id)
+@tree.command(name="ranking", description="Mostra quem ficou mais tempo em call")
+async def ranking(interaction: discord.Interaction, periodo: Optional[str] = "semana") -> None:
+    """Mostra o ranking de quem ficou mais tempo em call."""
+    guild_id = str(interaction.guild_id)
     periodo = periodo.lower()
 
     if guild_id not in user_data:
-        await ctx.send("Nenhum dado registrado ainda! 😢")
+        await interaction.response.send_message("Nenhum dado registrado ainda! 😢", ephemeral=True)
         return
 
     ranking_data = user_data[guild_id]
     sorted_users = sorted(ranking_data.items(), key=lambda x: x[1], reverse=True)
-    
+
     embed = discord.Embed(
         title=f"🏆 Ranking - {periodo.capitalize()}",
         description="Veja quem mais ficou em call!",
@@ -216,7 +220,7 @@ async def ranking(ctx: commands.Context, periodo: Optional[str] = "semana") -> N
         user = await bot.fetch_user(int(user_id))
         embed.add_field(name=f"{i}️⃣ {user.name}", value=f"🕒 {format_time(tempo)}", inline=False)
 
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 ### 📌 Premiação automática: "Tchudu Bem Master" ###
 @tasks.loop(hours=24)
@@ -306,11 +310,11 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
             await channel.send(embed=embed)
 
 ### 📌 Comando para ver o nível ###
-@bot.command(name="meunivel")
-async def meunivel(ctx: commands.Context) -> None:
+@tree.command(name="meunivel", description="Mostra seu XP e nível no servidor")
+async def meunivel(interaction: discord.Interaction) -> None:
     """Mostra o nível e XP do usuário."""
-    guild_id = str(ctx.guild.id)
-    user_id = str(ctx.author.id)
+    guild_id = str(interaction.guild_id)
+    user_id = str(interaction.user.id)
 
     xp_total = user_data.get(guild_id, {}).get(f"xp_{user_id}", 0)
     nivel = user_data.get(guild_id, {}).get(f"nivel_{user_id}", 0)
@@ -321,7 +325,7 @@ async def meunivel(ctx: commands.Context) -> None:
         color=discord.Color.blue()
     )
 
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 # Iniciar o bot
 if TOKEN:
