@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from discord.ui import View, Button
 import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -45,34 +46,52 @@ async def on_ready() -> None:
     schedule_poll.start()
     schedule_summary.start()  # Corrigido: Adicionando a tarefa do resumo
 
+class RoleSelectionView(View):
+    def __init__(self, roles: list[discord.Role], owner_id: int):
+        super().__init__(timeout=60)  # Expira após 60 segundos
+        self.selected_role: Optional[discord.Role] = None
+        self.owner_id = owner_id  # Apenas o dono pode clicar
+        self.roles = roles
+
+        for role in roles:
+            button = Button(label=role.name, style=discord.ButtonStyle.primary)
+            button.callback = self.create_callback(role)
+            self.add_item(button)
+
+    def create_callback(self, role: discord.Role):
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.owner_id:
+                await interaction.response.send_message("❌ Apenas o dono do servidor pode selecionar o cargo!", ephemeral=True)
+                return
+
+            self.selected_role = role
+            self.stop()
+            await interaction.response.send_message(f"✅ Cargo **{role.name}** selecionado!", ephemeral=True)
+
+        return callback
+
 async def setup_server(guild: discord.Guild) -> None:
-    """Configura automaticamente um novo servidor apenas se ele ainda não estiver salvo."""
+    """Configuração automática do servidor com botões para escolha de cargo."""
     guild_id = str(guild.id)
 
     if guild_id in server_settings:
-        print(f"✅ Servidor {guild.name} já está configurado. Pulando setup.")
+        print(f"✅ Servidor {guild.name} já configurado. Pulando setup.")
         return
 
     owner: Optional[discord.Member] = guild.owner
     if not owner:
         return
 
-    # 📌 Perguntar ao dono do servidor qual canal usar
+    # Perguntar ao dono do servidor qual canal usar
     text_channels = guild.text_channels
-    channel_options = "\n".join(
-        [f"{i+1}️⃣  #{channel.name}" for i, channel in enumerate(text_channels)]
-    )
+    channel_options = "\n".join([f"{i+1}️⃣  #{channel.name}" for i, channel in enumerate(text_channels)])
 
     embed_channel = discord.Embed(
         title="📢 Configuração do Tchudozômetro",
         description="Por favor, escolha o canal onde o bot enviará as enquetes diárias!",
         color=discord.Color.blue()
     )
-    embed_channel.add_field(
-        name="📜 Opções disponíveis:",
-        value=channel_options,
-        inline=False
-    )
+    embed_channel.add_field(name="📜 Opções disponíveis:", value=channel_options, inline=False)
     embed_channel.set_footer(text="⏳ Responda com o número correspondente.")
 
     await owner.send(embed=embed_channel)
@@ -80,38 +99,35 @@ async def setup_server(guild: discord.Guild) -> None:
     def check(m: discord.Message) -> bool:
         return m.author == owner and m.content.isdigit() and 1 <= int(m.content) <= len(text_channels)
 
-    # 📌 Aguarda até que o dono responda (SEM TIMEOUT)
-    msg = await bot.wait_for('message', check=check)
-    channel_id = text_channels[int(msg.content) - 1].id
+    try:
+        msg = await bot.wait_for('message', check=check, timeout=60)
+        channel_id = text_channels[int(msg.content) - 1].id
+    except asyncio.TimeoutError:
+        channel_id = text_channels[0].id  # Usa o primeiro canal por padrão
 
-    # 📌 Agora que o canal foi escolhido, perguntar sobre o cargo
+    # Perguntar qual cargo usar para o "Tchudu Bem Master..."
     roles = [role for role in guild.roles if role.name != "@everyone"]
-    role_options = "\n".join(
-        [f"{i+1}️⃣  @{role.name}" for i, role in enumerate(roles)]
-    )
+    if not roles:
+        await owner.send("❌ Nenhum cargo disponível para escolher. Crie um cargo e tente novamente!")
+        return
 
     embed_role = discord.Embed(
         title="🏅 Escolha o cargo do 'Tchudu Bem Master...'",
-        description="Qual cargo deve ser atribuído ao jogador com menos tempo em call?",
+        description="Clique no botão correspondente ao cargo desejado!",
         color=discord.Color.gold()
     )
-    embed_role.add_field(
-        name="🎭 Opções disponíveis:",
-        value=role_options,
-        inline=False
-    )
-    embed_role.set_footer(text="⏳ Responda com o número correspondente.")
 
-    await owner.send(embed=embed_role)
+    view = RoleSelectionView(roles, owner.id)
+    message = await owner.send(embed=embed_role, view=view)
+    await view.wait()  # Aguarda a resposta do dono do servidor
 
-    def check_role(m: discord.Message) -> bool:
-        return m.author == owner and m.content.isdigit() and 1 <= int(m.content) <= len(roles)
+    if view.selected_role is None:
+        await message.edit(content="❌ Tempo esgotado! Nenhum cargo foi selecionado.", embed=None, view=None)
+        return
 
-    # 📌 Aguarda até que o dono responda sobre o cargo (SEM TIMEOUT)
-    msg = await bot.wait_for('message', check=check_role)
-    role_id = roles[int(msg.content) - 1].id
+    role_id = view.selected_role.id
 
-    # 📌 Salvar configurações
+    # Salvar configurações no JSON
     server_settings[guild_id] = {
         "channel_id": channel_id,
         "role_id": role_id,
@@ -130,8 +146,6 @@ async def setup_server(guild: discord.Guild) -> None:
     embed_confirm.set_footer(text="🚀 O bot começará a enviar as enquetes diariamente às 07:00!")
 
     await owner.send(embed=embed_confirm)
-
-    print(f"✅ Configuração salva para {guild.name}: Canal {channel_id}, Cargo {role_id}")
 
 def next_run_time(hour: int, minute: int) -> float:
     """Calcula o tempo restante para a próxima execução."""
