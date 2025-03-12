@@ -288,50 +288,51 @@ async def award_tchudu_master() -> None:
         if channel:
             await channel.send(embed=embed)
 
+# Armazena usuários ativos e suas tarefas de XP
+active_users: dict[str, asyncio.Task] = {}
+
+async def update_xp(guild_id: str, user_id: str):
+    """Atualiza XP a cada segundo enquanto o usuário estiver em call."""
+    while user_id in active_users:
+        user_data.setdefault(guild_id, {}).setdefault(f"xp_{user_id}", 0)
+        user_data[guild_id][f"xp_{user_id}"] += 1  # Ganha 1 XP por segundo
+
+        # Sistema de níveis (100 XP = 1 nível)
+        level_atual = user_data[guild_id][f"xp_{user_id}"] // 100
+        nivel_anterior = user_data[guild_id].get(f"nivel_{user_id}", 0)
+
+        if level_atual > nivel_anterior:
+            user_data[guild_id][f"nivel_{user_id}"] = level_atual
+
+            embed = discord.Embed(
+                title="🎉 Subiu de nível!",
+                description=f"Parabéns <@{user_id}>, você agora é **Nível {level_atual}**!",
+                color=discord.Color.green()
+            )
+            channel = get_channel(bot, guild_id)
+            if channel:
+                await channel.send(embed=embed)
+
+        await asyncio.sleep(1)  # Aguarda 1 segundo antes de adicionar mais XP
+
 ### 📌 Sistema de XP e níveis ###
 @bot.event
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
+    """Registra entrada e saída da call e inicia/parar o sistema de XP por segundo."""
     guild_id = str(member.guild.id)
     user_id = str(member.id)
 
-    # Quando o usuário entra em uma call, guarda o timestamp de entrada
-    if after.channel and not before.channel:
-        user_data.setdefault(guild_id, {})[f"join_{user_id}"] = datetime.utcnow().timestamp()
+    if after.channel and not before.channel:  # Entrou na call
+        if user_id not in active_users:
+            active_users[user_id] = asyncio.create_task(update_xp(guild_id, user_id))
 
-    # Quando o usuário sai da call, calcula a duração e acumula o tempo
-    elif before.channel and not after.channel:
-        join_time = user_data[guild_id].pop(f"join_{user_id}", None)
-        if join_time:
-            duration = datetime.utcnow().timestamp() - join_time
-            # Atualiza o tempo total acumulado
-            total_time = user_data[guild_id].get(f"time_{user_id}", 0) + duration
-            user_data[guild_id][f"time_{user_id}"] = total_time
-            save_user_data(user_data)
-
-            # Sistema de XP: ganha 10 XP para cada 10 minutos (600 segundos) em call
-            xp_ganho = (duration // 600) * 10
-            xp_total = user_data[guild_id].get(f"xp_{user_id}", 0) + xp_ganho
-            user_data[guild_id][f"xp_{user_id}"] = xp_total
-
-            # Sistema de níveis: a cada 100 XP, sobe de nível
-            level_atual = xp_total // 100
-            nivel_anterior = user_data[guild_id].get(f"nivel_{user_id}", 0)
-
-            if level_atual > nivel_anterior:
-                user_data[guild_id][f"nivel_{user_id}"] = level_atual
-                save_user_data(user_data)
-
-                embed = discord.Embed(
-                    title="🎉 Subiu de nível!",
-                    description=f"Parabéns {member.mention}, você agora é **Nível {level_atual}**!",
-                    color=discord.Color.green()
-                )
-                channel = get_channel(bot, guild_id)
-                if channel:
-                    await channel.send(embed=embed)
+    elif before.channel and not after.channel:  # Saiu da call
+        if user_id in active_users:
+            active_users[user_id].cancel()  # Cancela a tarefa do XP
+            del active_users[user_id]
 
 ### 📌 Comando para ver o nível ###
-@tree.command(name="meunivel", description="Mostra seu XP e nível no servidor")
+@tree.command(name="level", description="Mostra seu XP e nível no servidor")
 async def meunivel(interaction: discord.Interaction) -> None:
     """Mostra o nível e XP do usuário."""
     guild_id = str(interaction.guild_id)
