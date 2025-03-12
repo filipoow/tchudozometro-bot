@@ -189,6 +189,140 @@ async def daily_summary() -> None:
 
             await channel.send(embed=embed)
 
+### 📌 Comando !ranking ###
+@bot.command(name="ranking")
+async def ranking(ctx: commands.Context, periodo: Optional[str] = "semana") -> None:
+    """
+    Mostra o ranking de quem ficou mais tempo em call na semana ou no mês.
+    Uso: !ranking [semana/mês]
+    """
+    guild_id = str(ctx.guild.id)
+    periodo = periodo.lower()
+
+    if guild_id not in user_data:
+        await ctx.send("Nenhum dado registrado ainda! 😢")
+        return
+
+    ranking_data = user_data[guild_id]
+    sorted_users = sorted(ranking_data.items(), key=lambda x: x[1], reverse=True)
+    
+    embed = discord.Embed(
+        title=f"🏆 Ranking - {periodo.capitalize()}",
+        description="Veja quem mais ficou em call!",
+        color=discord.Color.gold()
+    )
+
+    for i, (user_id, tempo) in enumerate(sorted_users[:10], start=1):
+        user = await bot.fetch_user(int(user_id))
+        embed.add_field(name=f"{i}️⃣ {user.name}", value=f"🕒 {format_time(tempo)}", inline=False)
+
+    await ctx.send(embed=embed)
+
+### 📌 Premiação automática: "Tchudu Bem Master" ###
+@tasks.loop(hours=24)
+async def award_tchudu_master() -> None:
+    """A cada mês, premia automaticamente quem menos jogou."""
+    now = datetime.now()
+    if now.day != 1:  # Somente no primeiro dia do mês
+        return
+
+    for guild_id, settings in server_settings.items():
+        if guild_id not in user_data:
+            continue
+
+        # Identifica o usuário com MENOS tempo de call
+        min_user = min(user_data[guild_id], key=user_data[guild_id].get, default=None)
+        if not min_user:
+            continue
+
+        guild = bot.get_guild(int(guild_id))
+        if not guild:
+            continue
+
+        role = guild.get_role(settings["role_id"])
+        if not role:
+            continue
+
+        member = guild.get_member(int(min_user))
+        if not member:
+            continue
+
+        # Remove o cargo do antigo "Tchudu Bem Master"
+        for m in guild.members:
+            if role in m.roles:
+                await m.remove_roles(role)
+
+        # Adiciona o cargo ao novo "Tchudu Bem Master"
+        await member.add_roles(role)
+
+        embed = discord.Embed(
+            title="🏅 Novo Tchudu Bem Master!",
+            description=f"😱 {member.mention} ficou com **menos tempo em call** este mês!",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Tente se redimir no próximo mês... 😂")
+
+        channel = get_channel(bot, guild_id)
+        if channel:
+            await channel.send(embed=embed)
+
+### 📌 Sistema de XP e níveis ###
+@bot.event
+async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
+    """Registra tempo em call e dá XP baseado no tempo."""
+    guild_id = str(member.guild.id)
+    user_id = str(member.id)
+
+    if after.channel and not before.channel:
+        user_data.setdefault(guild_id, {})[user_id] = datetime.utcnow().timestamp()
+    elif before.channel and not after.channel and user_id in user_data.get(guild_id, {}):
+        duration = datetime.utcnow().timestamp() - user_data[guild_id][user_id]
+        user_data[guild_id][user_id] = user_data[guild_id].get(user_id, 0) + duration
+        save_user_data(user_data)
+
+    # Sistema de XP: ganha 10 XP por cada 10 minutos em call
+    xp_ganho = (duration // 600) * 10  # A cada 10 minutos = +10 XP
+    xp_nivel = user_data[guild_id].get(f"xp_{user_id}", 0) + xp_ganho
+
+    # Atualiza o XP do usuário
+    user_data[guild_id][f"xp_{user_id}"] = xp_nivel
+    save_user_data(user_data)
+
+    # Sistema de níveis: a cada 100 XP, sobe de nível
+    level_atual = xp_nivel // 100
+    nivel_anterior = user_data[guild_id].get(f"nivel_{user_id}", 0)
+
+    if level_atual > nivel_anterior:
+        user_data[guild_id][f"nivel_{user_id}"] = level_atual
+        save_user_data(user_data)
+
+        embed = discord.Embed(
+            title="🎉 Subiu de nível!",
+            description=f"Parabéns {member.mention}, você agora é **Nível {level_atual}**!",
+            color=discord.Color.green()
+        )
+        channel = get_channel(bot, guild_id)
+        if channel:
+            await channel.send(embed=embed)
+
+### 📌 Comando para ver o nível ###
+@bot.command(name="meunivel")
+async def meunivel(ctx: commands.Context) -> None:
+    """Mostra o nível e XP do usuário."""
+    guild_id = str(ctx.guild.id)
+    user_id = str(ctx.author.id)
+
+    xp_total = user_data.get(guild_id, {}).get(f"xp_{user_id}", 0)
+    nivel = user_data.get(guild_id, {}).get(f"nivel_{user_id}", 0)
+
+    embed = discord.Embed(
+        title="📊 Seu progresso",
+        description=f"🎮 **XP:** {xp_total}\n🏆 **Nível:** {nivel}",
+        color=discord.Color.blue()
+    )
+
+    await ctx.send(embed=embed)
+
 # Iniciar o bot
 if TOKEN:
     bot.run(TOKEN)
