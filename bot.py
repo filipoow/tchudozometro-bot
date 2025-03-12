@@ -295,37 +295,41 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
     guild_id = str(member.guild.id)
     user_id = str(member.id)
 
-    if after.channel and not before.channel:
+    duration = 0  # Definir duration com um valor padrão para evitar erro
+
+    if after.channel and not before.channel:  # Entrou na call
         user_data.setdefault(guild_id, {})[user_id] = datetime.utcnow().timestamp()
-    elif before.channel and not after.channel and user_id in user_data.get(guild_id, {}):
+
+    elif before.channel and not after.channel and user_id in user_data.get(guild_id, {}):  # Saiu da call
         duration = datetime.utcnow().timestamp() - user_data[guild_id][user_id]
         user_data[guild_id][user_id] = user_data[guild_id].get(user_id, 0) + duration
         save_user_data(user_data)
 
-    # Sistema de XP: ganha 10 XP por cada 10 minutos em call
-    xp_ganho = (duration // 600) * 10  # A cada 10 minutos = +10 XP
-    xp_nivel = user_data[guild_id].get(f"xp_{user_id}", 0) + xp_ganho
+    if duration > 0:  # Só calcular XP se duration tiver um valor válido
+        # Sistema de XP: ganha 10 XP por cada 10 minutos em call
+        xp_ganho = (duration // 600) * 10  # A cada 10 minutos = +10 XP
+        xp_nivel = user_data[guild_id].get(f"xp_{user_id}", 0) + xp_ganho
 
-    # Atualiza o XP do usuário
-    user_data[guild_id][f"xp_{user_id}"] = xp_nivel
-    save_user_data(user_data)
-
-    # Sistema de níveis: a cada 100 XP, sobe de nível
-    level_atual = xp_nivel // 100
-    nivel_anterior = user_data[guild_id].get(f"nivel_{user_id}", 0)
-
-    if level_atual > nivel_anterior:
-        user_data[guild_id][f"nivel_{user_id}"] = level_atual
+        # Atualiza o XP do usuário
+        user_data[guild_id][f"xp_{user_id}"] = xp_nivel
         save_user_data(user_data)
 
-        embed = discord.Embed(
-            title="🎉 Subiu de nível!",
-            description=f"Parabéns {member.mention}, você agora é **Nível {level_atual}**!",
-            color=discord.Color.green()
-        )
-        channel = get_channel(bot, guild_id)
-        if channel:
-            await channel.send(embed=embed)
+        # Sistema de níveis: a cada 100 XP, sobe de nível
+        level_atual = xp_nivel // 100
+        nivel_anterior = user_data[guild_id].get(f"nivel_{user_id}", 0)
+
+        if level_atual > nivel_anterior:
+            user_data[guild_id][f"nivel_{user_id}"] = level_atual
+            save_user_data(user_data)
+
+            embed = discord.Embed(
+                title="🎉 Subiu de nível!",
+                description=f"Parabéns {member.mention}, você agora é **Nível {level_atual}**!",
+                color=discord.Color.green()
+            )
+            channel = get_channel(bot, guild_id)
+            if channel:
+                await channel.send(embed=embed)
 
 ### 📌 Comando para ver o nível ###
 @tree.command(name="meunivel", description="Mostra seu XP e nível no servidor")
