@@ -57,7 +57,7 @@ async def setup_server(guild: discord.Guild) -> None:
     if not owner:
         return
 
-    # Perguntar ao dono do servidor qual canal usar
+    # 📌 Perguntar ao dono do servidor qual canal usar
     text_channels = guild.text_channels
     channel_options = "\n".join(
         [f"{i+1}️⃣  #{channel.name}" for i, channel in enumerate(text_channels)]
@@ -84,9 +84,11 @@ async def setup_server(guild: discord.Guild) -> None:
         msg = await bot.wait_for('message', check=check, timeout=60)
         channel_id = text_channels[int(msg.content) - 1].id
     except asyncio.TimeoutError:
+        await owner.send("⏳ Tempo esgotado! Usarei o primeiro canal disponível.")
         channel_id = text_channels[0].id  # Usa o primeiro canal por padrão
+        return  # 📌 Para evitar perguntar o cargo se o canal não foi respondido
 
-    # Perguntar qual cargo usar para o "Tchudu Bem Master..."
+    # 📌 Agora que o canal foi escolhido, perguntar sobre o cargo
     roles = [role for role in guild.roles if role.name != "@everyone"]
     role_options = "\n".join(
         [f"{i+1}️⃣  @{role.name}" for i, role in enumerate(roles)]
@@ -113,9 +115,10 @@ async def setup_server(guild: discord.Guild) -> None:
         msg = await bot.wait_for('message', check=check_role, timeout=60)
         role_id = roles[int(msg.content) - 1].id
     except asyncio.TimeoutError:
+        await owner.send("⏳ Tempo esgotado! Usarei o primeiro cargo disponível.")
         role_id = roles[0].id  # Usa o primeiro cargo como padrão
 
-    # Salvar configurações no JSON
+    # 📌 Salvar configurações
     server_settings[guild_id] = {
         "channel_id": channel_id,
         "role_id": role_id,
