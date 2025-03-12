@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
 from typing import Optional
@@ -31,15 +31,17 @@ async def on_ready() -> None:
     """Executado quando o bot está pronto."""
     print(f'✅ Bot {bot.user.name} está online!' if bot.user else "Bot está online!")
     for guild in bot.guilds:
-        if str(guild.id) not in server_settings:  # Somente se o servidor não estiver configurado
+        if str(guild.id) not in server_settings:
             await setup_server(guild)
-    daily_poll.start()
-    daily_summary.start()
+
+    # Iniciar as tarefas agendadas
+    schedule_poll.start()
+    schedule_summary.start()
 
 async def setup_server(guild: discord.Guild) -> None:
     """Configura automaticamente um novo servidor apenas se ele ainda não estiver salvo."""
     guild_id = str(guild.id)
-    
+
     # Se o servidor já está salvo, não faz nada
     if guild_id in server_settings:
         print(f"✅ Servidor {guild.name} já está configurado. Pulando setup.")
@@ -94,9 +96,22 @@ async def setup_server(guild: discord.Guild) -> None:
 
     print(f"✅ Configuração salva para {guild.name}: Canal {channel_id}, Cargo {role_id}")
 
+def next_run_time(hour: int, minute: int) -> float:
+    """Calcula o tempo restante para a próxima execução."""
+    now = datetime.now()
+    next_run = datetime(now.year, now.month, now.day, hour, minute)
+    if now >= next_run:
+        next_run += timedelta(days=1)  # Agenda para o próximo dia
+    return (next_run - now).total_seconds()
+
 @tasks.loop(hours=24)
+async def schedule_poll() -> None:
+    """Aguarda até as 07:00 da manhã para postar a enquete diária."""
+    await asyncio.sleep(next_run_time(7, 0))  # Aguarda até as 07:00
+    await daily_poll()
+
 async def daily_poll() -> None:
-    """Posta a enquete diária."""
+    """Posta a enquete diária às 7:00 da manhã."""
     for guild_id, settings in server_settings.items():
         channel: Optional[discord.TextChannel] = get_channel(bot, guild_id)
         if channel:
@@ -108,8 +123,13 @@ async def daily_poll() -> None:
                 await message.add_reaction(reaction)
 
 @tasks.loop(hours=24)
+async def schedule_summary() -> None:
+    """Aguarda até as 23:00 para enviar o resumo diário."""
+    await asyncio.sleep(next_run_time(23, 0))  # Aguarda até as 23:00
+    await daily_summary()
+
 async def daily_summary() -> None:
-    """Gera o resumo diário baseado nos votos e no tempo em call."""
+    """Envia o resumo diário às 23:00."""
     for guild_id, settings in server_settings.items():
         channel: Optional[discord.TextChannel] = get_channel(bot, guild_id)
         if channel:
