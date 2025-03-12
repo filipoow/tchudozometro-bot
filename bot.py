@@ -80,13 +80,9 @@ async def setup_server(guild: discord.Guild) -> None:
     def check(m: discord.Message) -> bool:
         return m.author == owner and m.content.isdigit() and 1 <= int(m.content) <= len(text_channels)
 
-    try:
-        msg = await bot.wait_for('message', check=check, timeout=60)
-        channel_id = text_channels[int(msg.content) - 1].id
-    except asyncio.TimeoutError:
-        await owner.send("⏳ Tempo esgotado! Usarei o primeiro canal disponível.")
-        channel_id = text_channels[0].id  # Usa o primeiro canal por padrão
-        return  # 📌 Para evitar perguntar o cargo se o canal não foi respondido
+    # 📌 Aguarda até que o dono responda (SEM TIMEOUT)
+    msg = await bot.wait_for('message', check=check)
+    channel_id = text_channels[int(msg.content) - 1].id
 
     # 📌 Agora que o canal foi escolhido, perguntar sobre o cargo
     roles = [role for role in guild.roles if role.name != "@everyone"]
@@ -111,12 +107,9 @@ async def setup_server(guild: discord.Guild) -> None:
     def check_role(m: discord.Message) -> bool:
         return m.author == owner and m.content.isdigit() and 1 <= int(m.content) <= len(roles)
 
-    try:
-        msg = await bot.wait_for('message', check=check_role, timeout=60)
-        role_id = roles[int(msg.content) - 1].id
-    except asyncio.TimeoutError:
-        await owner.send("⏳ Tempo esgotado! Usarei o primeiro cargo disponível.")
-        role_id = roles[0].id  # Usa o primeiro cargo como padrão
+    # 📌 Aguarda até que o dono responda sobre o cargo (SEM TIMEOUT)
+    msg = await bot.wait_for('message', check=check_role)
+    role_id = roles[int(msg.content) - 1].id
 
     # 📌 Salvar configurações
     server_settings[guild_id] = {
