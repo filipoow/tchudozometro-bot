@@ -30,41 +30,9 @@ intents.voice_states = True  # Para receber eventos de voz
 bot: commands.Bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree  # Slash commands
 
-
-# --------------------------------------------------
-#             CONFIGURAÇÃO INICIAL DO BOT
-# --------------------------------------------------
-
-@tree.command(name="passou", description="Inicia uma votação para ver se alguém se passou demais.")
-async def passou(interaction: discord.Interaction, target: discord.Member) -> None:
-    """
-    Comando /passou: o autor do comando acusa 'target' de ter se passado.
-    Cria um embed público com botões "Sim", "Não" e (posteriormente) "Condenar".
-    """
-    accuser = interaction.user  # Quem acusa
-    accused = target            # Quem está sendo acusado
-
-    view = PassouView(accuser, accused)
-    embed = view.create_embed()
-
-    # Envia a mensagem com o embed e a view (votação)
-    await interaction.response.send_message(embed=embed, view=view)
-
-@bot.event
-async def on_ready() -> None:
-    """Executado quando o bot está pronto."""
-    print(f'✅ Bot {bot.user.name} está online!' if bot.user else "Bot está online!")
-    await bot.tree.sync()
-    print("📌 Slash commands sincronizados!")
-
-    for guild in bot.guilds:
-        if str(guild.id) not in server_settings:
-            await setup_server(guild)
-
-    # Iniciar as tarefas agendadas
-    schedule_poll.start()
-    schedule_summary.start()
-    award_tchudu_master.start()  # Não esqueça de iniciar a tarefa de premiação
+# ============================================================
+#                    CLASSES DE VIEW
+# ============================================================
 
 class RoleSelectionView(View):
     """Janela interativa (View) para escolher cargo."""
@@ -90,25 +58,196 @@ class RoleSelectionView(View):
             self.selected_role = role
             self.stop()
             await interaction.response.send_message(f"✅ Cargo **{role.name}** selecionado!", ephemeral=True)
-
         return callback
 
-async def setup_server(guild: discord.Guild) -> None:
-    """Configuração automática do servidor com botões para escolha de cargo."""
-    guild_id = str(guild.id)
+class PassouView(discord.ui.View):
+    """View com botões: Sim, Não e, quando houver votos suficientes, Condenar."""
+    def __init__(self, accuser: discord.Member, accused: discord.Member):
+        super().__init__(timeout=None)  # Sem timeout (ou defina um se preferir)
+        self.accuser = accuser
+        self.accused = accused
+        self.sim_count = 0
+        self.nao_count = 0
 
+    def create_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="Passou ou não passou?",
+            description=f"{self.accuser.mention} acha que {self.accused.mention} se passou demais!",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="Sim", value=str(self.sim_count), inline=True)
+        embed.add_field(name="Não", value=str(self.nao_count), inline=True)
+        return embed
+
+    @discord.ui.button(label="Sim", style=discord.ButtonStyle.success)
+    async def sim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.sim_count += 1
+        # Habilita o botão 'Condenar' se houver pelo menos 2 votos de "Sim"
+        if self.sim_count >= 2:
+            self.condenar_button.disabled = False
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="Não", style=discord.ButtonStyle.danger)
+    async def nao_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.nao_count += 1
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="Condenar", style=discord.ButtonStyle.primary, disabled=True)
+    async def condenar_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        condemnation_embed = discord.Embed(
+            title="Condenado!",
+            description=f"{self.accused.mention} foi condenado(a) por se passar demais!",
+            color=discord.Color.red()
+        )
+        condemnation_embed.set_image(url="https://i.gifer.com/EfF.gif")
+        await interaction.response.send_message(embed=condemnation_embed)
+        # Desabilita os botões após a condenação
+        for child in self.children:
+            child.disabled = True
+        await interaction.message.edit(view=self)
+
+# ============================================================
+#                 COMANDOS SLASH
+# ============================================================
+
+@tree.command(name="passou", description="Inicia uma votação para ver se alguém se passou demais.")
+async def passou(interaction: discord.Interaction, target: discord.Member) -> None:
+    """
+    Comando /passou: o autor acusa 'target' de ter se passado.
+    Cria um embed com botões "Sim", "Não" e (posteriormente) "Condenar".
+    """
+    accuser = interaction.user
+    accused = target
+    view = PassouView(accuser, accused)
+    embed = view.create_embed()
+    await interaction.response.send_message(embed=embed, view=view)
+
+@tree.command(name="choquederealidade", description="Dá um choque de realidade em alguém!")
+async def choquederealidade(interaction: discord.Interaction, target: discord.Member) -> None:
+    """
+    Comando para aplicar um choque de realidade.
+    Atualiza os contadores e envia um embed com o GIF e os dados de choques.
+    """
+    giver: discord.Member = interaction.user
+    receiver: discord.Member = target
+    guild_id: str = str(interaction.guild.id)
+
+    if guild_id not in user_data:
+        user_data[guild_id] = {}
+
+    giver_dado_key = f"choque_dado_{giver.id}"
+    giver_recebido_key = f"choque_recebido_{giver.id}"
+    receiver_dado_key = f"choque_dado_{receiver.id}"
+    receiver_recebido_key = f"choque_recebido_{receiver.id}"
+
+    if giver_dado_key not in user_data[guild_id]:
+        user_data[guild_id][giver_dado_key] = 0
+    if giver_recebido_key not in user_data[guild_id]:
+        user_data[guild_id][giver_recebido_key] = 0
+    if receiver_dado_key not in user_data[guild_id]:
+        user_data[guild_id][receiver_dado_key] = 0
+    if receiver_recebido_key not in user_data[guild_id]:
+        user_data[guild_id][receiver_recebido_key] = 0
+
+    user_data[guild_id][giver_dado_key] += 1
+    user_data[guild_id][receiver_recebido_key] += 1
+
+    save_user_data(user_data)
+
+    embed = discord.Embed(
+        title="⚡ Choque de Realidade!",
+        description=f"{giver.mention} aplicou um choque de realidade em {receiver.mention}!",
+        color=discord.Color.purple()
+    )
+    embed.set_author(name=giver.display_name, icon_url=giver.display_avatar.url)
+    embed.set_image(url="https://i.gifer.com/1IYp.gif")
+    embed.set_footer(text=receiver.display_name, icon_url=receiver.display_avatar.url)
+    embed.add_field(
+        name=f"{giver.display_name}",
+        value=(f"**Choques dados:** {user_data[guild_id][giver_dado_key]}\n"
+               f"**Choques recebidos:** {user_data[guild_id][giver_recebido_key]}"),
+        inline=True
+    )
+    embed.add_field(
+        name=f"{receiver.display_name}",
+        value=(f"**Choques dados:** {user_data[guild_id][receiver_dado_key]}\n"
+               f"**Choques recebidos:** {user_data[guild_id][receiver_recebido_key]}"),
+        inline=True
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+@tree.command(name="ranking", description="Mostra quem ficou mais tempo em call")
+async def ranking(interaction: discord.Interaction, periodo: Optional[str] = "semana") -> None:
+    guild_id = str(interaction.guild_id)
+    if guild_id not in user_data:
+        await interaction.response.send_message("Nenhum dado registrado ainda! 😢", ephemeral=True)
+        return
+
+    time_data = {
+        uid[5:]: t
+        for uid, t in user_data[guild_id].items() 
+        if uid.startswith("time_")
+    }
+    if not time_data:
+        await interaction.response.send_message("Nenhum usuário válido encontrado para o ranking. 😢", ephemeral=True)
+        return
+
+    sorted_users = sorted(time_data.items(), key=lambda x: x[1], reverse=True)
+    embed = discord.Embed(
+        title=f"🏆 Ranking - {periodo.capitalize()}",
+        description="Veja quem mais ficou em call!",
+        color=discord.Color.gold()
+    )
+    for i, (u_id, tempo) in enumerate(sorted_users[:10], start=1):
+        user = await bot.fetch_user(int(u_id))
+        embed.add_field(name=f"{i}️⃣ {user.name}", value=f"🕒 {format_time(tempo)}", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+@tree.command(name="level", description="Mostra seu XP e nível no servidor")
+async def level(interaction: discord.Interaction) -> None:
+    guild_id = str(interaction.guild_id)
+    user_id = str(interaction.user.id)
+    xp_key = f"xp_{user_id}"
+    nivel_key = f"nivel_{user_id}"
+    xp_total = user_data.get(guild_id, {}).get(xp_key, 0)
+    nivel = user_data.get(guild_id, {}).get(nivel_key, 0)
+    embed = discord.Embed(
+        title="📊 Seu progresso",
+        description=f"🎮 **XP:** {xp_total}\n🏆 **Nível:** {nivel}",
+        color=discord.Color.blue()
+    )
+    await interaction.response.send_message(embed=embed)
+
+# ============================================================
+#                     EVENTOS E TAREFAS
+# ============================================================
+
+@bot.event
+async def on_ready() -> None:
+    print(f'✅ Bot {bot.user.name} está online!' if bot.user else "Bot está online!")
+    await bot.tree.sync()
+    print("📌 Slash commands sincronizados!")
+
+    for guild in bot.guilds:
+        if str(guild.id) not in server_settings:
+            await setup_server(guild)
+
+    schedule_poll.start()
+    schedule_summary.start()
+    award_tchudu_master.start()
+
+async def setup_server(guild: discord.Guild) -> None:
+    guild_id = str(guild.id)
     if guild_id in server_settings:
         print(f"✅ Servidor {guild.name} já configurado. Pulando setup.")
         return
-
     owner: Optional[discord.Member] = guild.owner
     if not owner:
         return
 
-    # Perguntar ao dono do servidor qual canal usar
     text_channels = guild.text_channels
     channel_options = "\n".join([f"{i+1}️⃣  #{channel.name}" for i, channel in enumerate(text_channels)])
-
     embed_channel = discord.Embed(
         title="📢 Configuração do Tchudozômetro",
         description="Por favor, escolha o canal onde o bot enviará as enquetes diárias!",
@@ -116,23 +255,16 @@ async def setup_server(guild: discord.Guild) -> None:
     )
     embed_channel.add_field(name="📜 Opções disponíveis:", value=channel_options, inline=False)
     embed_channel.set_footer(text="⏳ Responda com o número correspondente.")
-
     await owner.send(embed=embed_channel)
 
     def check(m: discord.Message) -> bool:
-        return (
-            m.author == owner
-            and m.content.isdigit()
-            and 1 <= int(m.content) <= len(text_channels)
-        )
-
+        return (m.author == owner and m.content.isdigit() and 1 <= int(m.content) <= len(text_channels))
     try:
         msg = await bot.wait_for('message', check=check, timeout=60)
         channel_id = text_channels[int(msg.content) - 1].id
     except asyncio.TimeoutError:
-        channel_id = text_channels[0].id  # Usa o primeiro canal por padrão
+        channel_id = text_channels[0].id
 
-    # Perguntar qual cargo usar para o "Tchudu Bem Master..."
     roles = [role for role in guild.roles if role.name != "@everyone"]
     if not roles:
         await owner.send("❌ Nenhum cargo disponível para escolher. Crie um cargo e tente novamente!")
@@ -143,28 +275,21 @@ async def setup_server(guild: discord.Guild) -> None:
         description="Clique no botão correspondente ao cargo desejado!",
         color=discord.Color.gold()
     )
-
     view = RoleSelectionView(roles, owner.id)
     message = await owner.send(embed=embed_role, view=view)
-    await view.wait()  # Aguarda a resposta do dono do servidor
-
+    await view.wait()
     if view.selected_role is None:
-        await message.edit(
-            content="❌ Tempo esgotado! Nenhum cargo foi selecionado.", embed=None, view=None
-        )
+        await message.edit(content="❌ Tempo esgotado! Nenhum cargo foi selecionado.", embed=None, view=None)
         return
 
     role_id = view.selected_role.id
-
-    # Salvar configurações no JSON
     server_settings[guild_id] = {
         "channel_id": channel_id,
         "role_id": role_id,
-        "min_call_time": 3600,       # 1 hora
-        "weekly_required_time": 7200 # 2 horas
+        "min_call_time": 3600,
+        "weekly_required_time": 7200
     }
     save_server_settings(server_settings)
-
     embed_confirm = discord.Embed(
         title="✅ Configuração concluída!",
         description="Tchudozômetro está pronto para começar!",
@@ -173,16 +298,9 @@ async def setup_server(guild: discord.Guild) -> None:
     embed_confirm.add_field(name="📢 Canal escolhido:", value=f"<#{channel_id}>", inline=False)
     embed_confirm.add_field(name="🏅 Cargo escolhido:", value=f"<@&{role_id}>", inline=False)
     embed_confirm.set_footer(text="🚀 O bot começará a enviar as enquetes diariamente às 07:00!")
-
     await owner.send(embed=embed_confirm)
 
-
-# --------------------------------------------------
-#                 TAREFAS AGENDADAS
-# --------------------------------------------------
-
 def next_run_time(hour: int, minute: int) -> float:
-    """Calcula o tempo restante para a próxima execução (em segundos)."""
     now = datetime.now()
     next_run = datetime(now.year, now.month, now.day, hour, minute)
     if now >= next_run:
@@ -191,18 +309,15 @@ def next_run_time(hour: int, minute: int) -> float:
 
 @tasks.loop(hours=24)
 async def schedule_poll() -> None:
-    """Aguarda até as 07:00 da manhã para postar a enquete diária."""
     await asyncio.sleep(next_run_time(7, 0))
     await daily_poll()
 
 @tasks.loop(hours=24)
 async def schedule_summary() -> None:
-    """Aguarda até as 23:00 para enviar o resumo diário."""
     await asyncio.sleep(next_run_time(23, 0))
     await daily_summary()
 
 async def daily_poll() -> None:
-    """Posta a enquete diária às 7:00 da manhã."""
     for guild_id, settings in server_settings.items():
         channel = get_channel(bot, guild_id)
         if channel:
@@ -216,195 +331,88 @@ async def daily_poll() -> None:
             embed.add_field(name="🟢 TCHUDU BEM....", value="💤 Passei menos de 1h na call...", inline=False)
             embed.add_field(name="🔴 FUI BUSCAR O CRACHÁ", value="🚪 Não participei hoje.", inline=False)
             embed.set_footer(text="📅 Vote antes da meia-noite!")
-
             message = await channel.send(embed=embed)
             for reaction in ["🟠", "🔵", "🟢", "🔴"]:
                 await message.add_reaction(reaction)
 
 async def daily_summary() -> None:
-    """Envia o resumo diário às 23:00."""
     for guild_id, settings in server_settings.items():
         channel = get_channel(bot, guild_id)
         if channel:
-            # Filtra apenas as chaves que começam com "time_"
-            time_data = {
-                uid: t for uid, t in user_data.get(guild_id, {}).items() 
-                if uid.startswith("time_")
-            }
-
-            # Conta quantos ficaram >= 1h (3600s) e quantos ficaram < 1h
+            time_data = { uid: t for uid, t in user_data.get(guild_id, {}).items() if uid.startswith("time_") }
             eitcha_count = sum(1 for _, time_val in time_data.items() if time_val >= 3600)
             tchudu_bem_count = sum(1 for _, time_val in time_data.items() if 0 < time_val < 3600)
-
             embed = discord.Embed(
                 title="📊 **Resumo do Dia**",
                 description="Aqui está o desempenho de hoje! ⏳",
                 color=discord.Color.green()
             )
-            embed.add_field(
-                name="🔥 EiTCHAAAAAAA",
-                value=f"🏆 {eitcha_count} jogadores ficaram mais de 1h!",
-                inline=False
-            )
-            embed.add_field(
-                name="😴 TCHUDU BEM.... (;-;)",
-                value=f"💤 {tchudu_bem_count} passaram menos de 1h.",
-                inline=False
-            )
+            embed.add_field(name="🔥 EiTCHAAAAAAA", value=f"🏆 {eitcha_count} jogadores ficaram mais de 1h!", inline=False)
+            embed.add_field(name="😴 TCHUDU BEM.... (;-;)", value=f"💤 {tchudu_bem_count} passaram menos de 1h.", inline=False)
             embed.set_footer(text="📅 Estatísticas atualizadas diariamente às 23:00.")
-
             await channel.send(embed=embed)
-
-
-# --------------------------------------------------
-#                   RANKING
-# --------------------------------------------------
-
-@tree.command(name="ranking", description="Mostra quem ficou mais tempo em call")
-async def ranking(interaction: discord.Interaction, periodo: Optional[str] = "semana") -> None:
-    """Mostra o ranking de quem ficou mais tempo em call."""
-    guild_id = str(interaction.guild_id)
-
-    if guild_id not in user_data:
-        await interaction.response.send_message("Nenhum dado registrado ainda! 😢", ephemeral=True)
-        return
-
-    # Filtra apenas chaves "time_{user_id}"
-    time_data = {
-        uid[5:]: t  # remove "time_" do começo para pegar só o ID
-        for uid, t in user_data[guild_id].items()
-        if uid.startswith("time_")
-    }
-
-    if not time_data:
-        await interaction.response.send_message("Nenhum usuário válido encontrado para o ranking. 😢", ephemeral=True)
-        return
-
-    # Ordenar os usuários pelo tempo em call (descendente)
-    sorted_users = sorted(time_data.items(), key=lambda x: x[1], reverse=True)
-
-    embed = discord.Embed(
-        title=f"🏆 Ranking - {periodo.capitalize()}",
-        description="Veja quem mais ficou em call!",
-        color=discord.Color.gold()
-    )
-
-    # Mostra top 10
-    for i, (u_id, tempo) in enumerate(sorted_users[:10], start=1):
-        user = await bot.fetch_user(int(u_id))
-        embed.add_field(name=f"{i}️⃣ {user.name}", value=f"🕒 {format_time(tempo)}", inline=False)
-
-    await interaction.response.send_message(embed=embed)
-
-
-# ---------------------------------------------------
-#            PREMIAÇÃO TCHUDU BEM MASTER
-# ---------------------------------------------------
 
 @tasks.loop(hours=24)
 async def award_tchudu_master() -> None:
-    """A cada mês, premia automaticamente quem menos jogou (1º dia do mês)."""
     now = datetime.now()
-    if now.day != 1:  # Somente no primeiro dia do mês
+    if now.day != 1:
         return
-
     for guild_id, settings in server_settings.items():
         if guild_id not in user_data:
             continue
-
-        # Filtra apenas chaves "time_{user_id}"
-        time_data = {
-            uid: t for uid, t in user_data[guild_id].items() if uid.startswith("time_")
-        }
+        time_data = { uid: t for uid, t in user_data[guild_id].items() if uid.startswith("time_") }
         if not time_data:
             continue
-
-        # Identifica o usuário com MENOS tempo de call
         min_user = min(time_data, key=time_data.get, default=None)
         if not min_user:
             continue
-
-        # "min_user" é algo como "time_123456", então pegamos só o ID
         actual_min_user_id = min_user[5:]
-
         guild = bot.get_guild(int(guild_id))
         if not guild:
             continue
-
         role = guild.get_role(settings["role_id"])
         if not role:
             continue
-
         member = guild.get_member(int(actual_min_user_id))
         if not member:
             continue
-
-        # Remove o cargo do antigo "Tchudu Bem Master"
         for m in guild.members:
             if role in m.roles:
                 await m.remove_roles(role)
-
-        # Adiciona o cargo ao novo "Tchudu Bem Master"
         await member.add_roles(role)
-
         embed = discord.Embed(
             title="🏅 Novo Tchudu Bem Master!",
             description=f"😱 {member.mention} ficou com **menos tempo em call** este mês!",
             color=discord.Color.red()
         )
         embed.set_footer(text="Tente se redimir no próximo mês... 😂")
-
         channel = get_channel(bot, guild_id)
         if channel:
             await channel.send(embed=embed)
 
-
-# --------------------------------------------------
-#         SISTEMA DE XP / NÍVEIS POR TEMPO EM CALL
-# --------------------------------------------------
-
 @bot.event
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
-    """Registra tempo em call e dá XP baseado no tempo."""
     guild_id = str(member.guild.id)
     user_id = str(member.id)
-
-    # [DEBUG opcional] print(f"[DEBUG] {member} entrou/saiu de call. Before={before.channel}, After={after.channel}")
-
-    # Se entrou na call (after.channel != None) e não estava em call antes
     if after.channel and not before.channel:
-        # Salva o timestamp de entrada na call
         user_data.setdefault(guild_id, {})[f"join_{user_id}"] = datetime.utcnow().timestamp()
-
-    # Se saiu da call (before.channel != None) e não entrou em outra call (after.channel == None)
     elif before.channel and not after.channel:
         join_key = f"join_{user_id}"
         join_time = user_data[guild_id].pop(join_key, None)
         if join_time:
-            # Calcula a duração em segundos
             duration = datetime.utcnow().timestamp() - join_time
-
-            # Soma no tempo total
             time_key = f"time_{user_id}"
             total_time = user_data[guild_id].get(time_key, 0) + duration
             user_data[guild_id][time_key] = total_time
-
-            # Cálculo de XP: 10 XP a cada 10 minutos (600s) - AJUSTE se quiser testar mais rápido
             xp_ganho = int(duration // 600) * 10
             xp_key = f"xp_{user_id}"
             xp_atual = user_data[guild_id].get(xp_key, 0) + xp_ganho
             user_data[guild_id][xp_key] = xp_atual
-
-            # Nível = xp // 100 (por exemplo, 100 XP = Nível 1)
             nivel_key = f"nivel_{user_id}"
             nivel_anterior = user_data[guild_id].get(nivel_key, 0)
             nivel_atual = xp_atual // 100
-
-            # Se subiu de nível
             if nivel_atual > nivel_anterior:
                 user_data[guild_id][nivel_key] = nivel_atual
-
-                # Anuncia o level up
                 embed = discord.Embed(
                     title="🎉 Subiu de nível!",
                     description=f"Parabéns {member.mention}, você agora é **Nível {nivel_atual}**!",
@@ -413,172 +421,11 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
                 channel = get_channel(bot, guild_id)
                 if channel:
                     await channel.send(embed=embed)
-
-            # Salva as alterações no JSON
             save_user_data(user_data)
 
-
-# --------------------------------------------------
-#         COMANDO SLASH: /level (ou /level)
-# --------------------------------------------------
-
-@tree.command(name="level", description="Mostra seu XP e nível no servidor")
-async def level(interaction: discord.Interaction) -> None:
-    """Mostra o nível e XP do usuário."""
-    guild_id = str(interaction.guild_id)
-    user_id = str(interaction.user.id)
-
-    xp_key = f"xp_{user_id}"
-    nivel_key = f"nivel_{user_id}"
-
-    xp_total = user_data.get(guild_id, {}).get(xp_key, 0)
-    nivel = user_data.get(guild_id, {}).get(nivel_key, 0)
-
-    embed = discord.Embed(
-        title="📊 Seu progresso",
-        description=f"🎮 **XP:** {xp_total}\n🏆 **Nível:** {nivel}",
-        color=discord.Color.blue()
-    )
-
-    await interaction.response.send_message(embed=embed)
-
-@tree.command(name="choquederealidade", description="Dá um choque de realidade em alguém!")
-async def choquederealidade(interaction: discord.Interaction, target: discord.Member) -> None:
-    """
-    Comando para aplicar um choque de realidade.
-    Atualiza os contadores para ambos os usuários (quem deu e quem recebeu)
-    e envia um embed com os dados:
-      - No topo, o autor (quem deu o choque)
-      - No rodapé, o usuário que recebeu o choque
-      - No meio, o GIF fixo do choque de realidade
-      - Dois campos exibindo para cada usuário seus choques dados e recebidos
-    """
-    giver: discord.Member = interaction.user
-    receiver: discord.Member = target
-    guild_id: str = str(interaction.guild.id)
-
-    # Garante que existe um dicionário para o servidor
-    if guild_id not in user_data:
-        user_data[guild_id] = {}
-
-    # Define as chaves para os contadores
-    giver_dado_key = f"choque_dado_{giver.id}"
-    giver_recebido_key = f"choque_recebido_{giver.id}"
-    receiver_dado_key = f"choque_dado_{receiver.id}"
-    receiver_recebido_key = f"choque_recebido_{receiver.id}"
-
-    # Inicializa os contadores se ainda não existirem
-    if giver_dado_key not in user_data[guild_id]:
-        user_data[guild_id][giver_dado_key] = 0
-    if giver_recebido_key not in user_data[guild_id]:
-        user_data[guild_id][giver_recebido_key] = 0
-    if receiver_dado_key not in user_data[guild_id]:
-        user_data[guild_id][receiver_dado_key] = 0
-    if receiver_recebido_key not in user_data[guild_id]:
-        user_data[guild_id][receiver_recebido_key] = 0
-
-    # Atualiza os contadores:
-    # Quem deu o choque incrementa seus choques dados
-    user_data[guild_id][giver_dado_key] += 1
-    # Quem recebeu o choque incrementa seus choques recebidos
-    user_data[guild_id][receiver_recebido_key] += 1
-
-    # Salva os dados atualizados
-    save_user_data(user_data)
-
-    # Cria o embed com o layout solicitado
-    embed = discord.Embed(
-        title="⚡ Choque de Realidade!",
-        description=f"{giver.mention} aplicou um choque de realidade em {receiver.mention}!",
-        color=discord.Color.purple()
-    )
-    # No topo, mostra quem deu o choque
-    embed.set_author(name=giver.display_name, icon_url=giver.display_avatar.url)
-    # Imagem central com o GIF do choque
-    embed.set_image(url="https://i.gifer.com/1IYp.gif")
-    # No rodapé, mostra quem recebeu o choque
-    embed.set_footer(text=receiver.display_name, icon_url=receiver.display_avatar.url)
-
-    # Adiciona campos exibindo os contadores dos dois usuários
-    embed.add_field(
-        name=f"{giver.display_name}",
-        value=(
-            f"**Choques dados:** {user_data[guild_id][giver_dado_key]}\n"
-            f"**Choques recebidos:** {user_data[guild_id][giver_recebido_key]}"
-        ),
-        inline=True
-    )
-    embed.add_field(
-        name=f"{receiver.display_name}",
-        value=(
-            f"**Choques dados:** {user_data[guild_id][receiver_dado_key]}\n"
-            f"**Choques recebidos:** {user_data[guild_id][receiver_recebido_key]}"
-        ),
-        inline=True
-    )
-
-    await interaction.response.send_message(embed=embed)
-
-class PassouView(discord.ui.View):
-    """Uma View com três botões: Sim, Não, e Condenar (que aparece quando há >= 2 votos de Sim)."""
-
-    def __init__(self, accuser: discord.Member, accused: discord.Member):
-        super().__init__(timeout=None)  # Se quiser expirar, defina um valor em segundos
-        self.accuser = accuser
-        self.accused = accused
-        self.sim_count = 0
-        self.nao_count = 0
-
-    def create_embed(self) -> discord.Embed:
-        """Gera o embed atualizado com a contagem de votos."""
-        embed = discord.Embed(
-            title="Passou ou não passou?",
-            description=f"{self.accuser.mention} acha que {self.accused.mention} se passou demais!",
-            color=discord.Color.orange()
-        )
-        embed.add_field(name="Sim", value=str(self.sim_count), inline=True)
-        embed.add_field(name="Não", value=str(self.nao_count), inline=True)
-        return embed
-
-    @discord.ui.button(label="Sim", style=discord.ButtonStyle.success)
-    async def sim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Botão de voto 'Sim'."""
-        self.sim_count += 1
-
-        # Se atingiu 2 votos de "Sim", habilita o botão 'Condenar'
-        if self.sim_count >= 2:
-            self.condenar_button.disabled = False
-
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
-
-    @discord.ui.button(label="Não", style=discord.ButtonStyle.danger)
-    async def nao_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Botão de voto 'Não'."""
-        self.nao_count += 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
-
-    @discord.ui.button(label="Condenar", style=discord.ButtonStyle.primary, disabled=True)
-    async def condenar_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Botão que aparece (habilitado) só quando há pelo menos 2 votos de 'Sim'."""
-        # Envia um novo embed anunciando a condenação
-        condemnation_embed = discord.Embed(
-            title="Condenado!",
-            description=f"{self.accused.mention} foi condenado(a) por se passar demais!",
-            color=discord.Color.red()
-        )
-        condemnation_embed.set_image(url="https://i.gifer.com/EfF.gif")
-
-        await interaction.response.send_message(embed=condemnation_embed)
-
-        # Desabilita todos os botões após a condenação
-        for child in self.children:
-            child.disabled = True
-        # Edita a mensagem original para refletir que os botões estão desabilitados
-        await interaction.message.edit(view=self)
-
-# --------------------------------------------------
-#                INICIAR O BOT
-# --------------------------------------------------
+# ============================================================
+#                       INICIAR O BOT
+# ============================================================
 
 if TOKEN:
     bot.run(TOKEN)
