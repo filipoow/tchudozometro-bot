@@ -282,9 +282,9 @@ async def ranking(interaction: discord.Interaction, periodo: Optional[str] = "se
     await interaction.response.send_message(embed=embed)
 
 
-# --------------------------------------------------
+# ---------------------------------------------------
 #            PREMIAÇÃO TCHUDU BEM MASTER
-# --------------------------------------------------
+# ---------------------------------------------------
 
 @tasks.loop(hours=24)
 async def award_tchudu_master() -> None:
