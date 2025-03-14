@@ -427,6 +427,82 @@ async def level(interaction: discord.Interaction) -> None:
 
     await interaction.response.send_message(embed=embed)
 
+@tree.command(name="choquederealidade", description="Dá um choque de realidade em alguém!")
+async def choque(interaction: discord.Interaction, target: discord.Member) -> None:
+    """
+    Comando para aplicar um choque de realidade.
+    Atualiza os contadores para ambos os usuários (quem deu e quem recebeu)
+    e envia um embed com os dados:
+      - No topo, o autor (quem deu o choque)
+      - No rodapé, o usuário que recebeu o choque
+      - No meio, o GIF fixo do choque de realidade
+      - Dois campos exibindo para cada usuário seus choques dados e recebidos
+    """
+    giver: discord.Member = interaction.user
+    receiver: discord.Member = target
+    guild_id: str = str(interaction.guild.id)
+
+    # Garante que existe um dicionário para o servidor
+    if guild_id not in user_data:
+        user_data[guild_id] = {}
+
+    # Define as chaves para os contadores
+    giver_dado_key = f"choque_dado_{giver.id}"
+    giver_recebido_key = f"choque_recebido_{giver.id}"
+    receiver_dado_key = f"choque_dado_{receiver.id}"
+    receiver_recebido_key = f"choque_recebido_{receiver.id}"
+
+    # Inicializa os contadores se ainda não existirem
+    if giver_dado_key not in user_data[guild_id]:
+        user_data[guild_id][giver_dado_key] = 0
+    if giver_recebido_key not in user_data[guild_id]:
+        user_data[guild_id][giver_recebido_key] = 0
+    if receiver_dado_key not in user_data[guild_id]:
+        user_data[guild_id][receiver_dado_key] = 0
+    if receiver_recebido_key not in user_data[guild_id]:
+        user_data[guild_id][receiver_recebido_key] = 0
+
+    # Atualiza os contadores:
+    # Quem deu o choque incrementa seus choques dados
+    user_data[guild_id][giver_dado_key] += 1
+    # Quem recebeu o choque incrementa seus choques recebidos
+    user_data[guild_id][receiver_recebido_key] += 1
+
+    # Salva os dados atualizados
+    save_user_data(user_data)
+
+    # Cria o embed com o layout solicitado
+    embed = discord.Embed(
+        title="⚡ Choque de Realidade!",
+        description=f"{giver.mention} aplicou um choque de realidade em {receiver.mention}!",
+        color=discord.Color.purple()
+    )
+    # No topo, mostra quem deu o choque
+    embed.set_author(name=giver.display_name, icon_url=giver.display_avatar.url)
+    # Imagem central com o GIF do choque
+    embed.set_image(url="https://i.gifer.com/1IYp.gif")
+    # No rodapé, mostra quem recebeu o choque
+    embed.set_footer(text=receiver.display_name, icon_url=receiver.display_avatar.url)
+
+    # Adiciona campos exibindo os contadores dos dois usuários
+    embed.add_field(
+        name=f"{giver.display_name}",
+        value=(
+            f"**Choques dados:** {user_data[guild_id][giver_dado_key]}\n"
+            f"**Choques recebidos:** {user_data[guild_id][giver_recebido_key]}"
+        ),
+        inline=True
+    )
+    embed.add_field(
+        name=f"{receiver.display_name}",
+        value=(
+            f"**Choques dados:** {user_data[guild_id][receiver_dado_key]}\n"
+            f"**Choques recebidos:** {user_data[guild_id][receiver_recebido_key]}"
+        ),
+        inline=True
+    )
+
+    await interaction.response.send_message(embed=embed)
 
 # --------------------------------------------------
 #                INICIAR O BOT
