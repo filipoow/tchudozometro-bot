@@ -428,7 +428,7 @@ async def level(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=embed)
 
 @tree.command(name="choquederealidade", description="Dá um choque de realidade em alguém!")
-async def choque(interaction: discord.Interaction, target: discord.Member) -> None:
+async def choquederealidade(interaction: discord.Interaction, target: discord.Member) -> None:
     """
     Comando para aplicar um choque de realidade.
     Atualiza os contadores para ambos os usuários (quem deu e quem recebeu)
