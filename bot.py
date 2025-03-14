@@ -505,25 +505,17 @@ async def choquederealidade(interaction: discord.Interaction, target: discord.Me
     await interaction.response.send_message(embed=embed)
 
 class PassouView(discord.ui.View):
-    """
-    Uma View com botões de votação ("Sim", "Não") e um botão "Condenar",
-    que só fica habilitado se a contagem de "Sim" >= 3.
-    """
+    """Uma View com três botões: Sim, Não, e Condenar (que aparece quando há >= 2 votos de Sim)."""
 
     def __init__(self, accuser: discord.Member, accused: discord.Member):
-        super().__init__(timeout=None)  # Se quiser expirar a votação, defina um valor de timeout em segundos
+        super().__init__(timeout=None)  # Se quiser expirar, defina um valor em segundos
         self.accuser = accuser
         self.accused = accused
         self.sim_count = 0
         self.nao_count = 0
 
-        # Botão "Condenar" inicialmente desabilitado
-        self.condenar_button = discord.ui.Button(label="Condenar", style=discord.ButtonStyle.blurple, disabled=True)
-        self.condenar_button.callback = self.condenar_callback  # Aponta para a função de callback
-        self.add_item(self.condenar_button)
-
     def create_embed(self) -> discord.Embed:
-        """Gera o embed com a contagem atual de votos."""
+        """Gera o embed atualizado com a contagem de votos."""
         embed = discord.Embed(
             title="Passou ou não passou?",
             description=f"{self.accuser.mention} acha que {self.accused.mention} se passou demais!",
@@ -538,34 +530,22 @@ class PassouView(discord.ui.View):
         """Botão de voto 'Sim'."""
         self.sim_count += 1
 
-        # Se já alcançamos 2 ou mais votos "Sim", habilita o botão "Condenar"
+        # Se atingiu 2 votos de "Sim", habilita o botão 'Condenar'
         if self.sim_count >= 2:
             self.condenar_button.disabled = False
 
-        # Atualiza a mensagem com a nova contagem e estado do botão
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="Não", style=discord.ButtonStyle.danger)
     async def nao_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Botão de voto 'Não'."""
         self.nao_count += 1
-        # Mantemos a lógica de habilitar/desabilitar "Condenar" apenas com base em "Sim"
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    async def condenar_callback(self, interaction: discord.Interaction):
-        """
-        Chamado quando alguém clica no botão "Condenar" (se estiver habilitado).
-        Envia um novo embed condenando a pessoa.
-        """
-        # Desabilita todos os botões para encerrar a votação
-        for child in self.children:
-            if isinstance(child, discord.ui.Button):
-                child.disabled = True
-
-        # Atualiza a mensagem final de votação (removendo interatividade)
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
-
-        # Envia outro card (embed) anunciando a condenação
+    @discord.ui.button(label="Condenar", style=discord.ButtonStyle.primary, disabled=True)
+    async def condenar_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Botão que aparece (habilitado) só quando há pelo menos 2 votos de 'Sim'."""
+        # Envia um novo embed anunciando a condenação
         condemnation_embed = discord.Embed(
             title="Condenado!",
             description=f"{self.accused.mention} foi condenado(a) por se passar demais!",
@@ -573,11 +553,16 @@ class PassouView(discord.ui.View):
         )
         condemnation_embed.set_image(url="https://i.gifer.com/EfF.gif")
 
-        # Manda um novo embed no mesmo canal
-        await interaction.followup.send(embed=condemnation_embed)
+        await interaction.response.send_message(embed=condemnation_embed)
+
+        # Desabilita todos os botões após a condenação
+        for child in self.children:
+            child.disabled = True
+        # Edita a mensagem original para refletir que os botões estão desabilitados
+        await interaction.message.edit(view=self)
 
 @tree.command(name="passou", description="Inicia uma votação para ver se alguém se passou demais.")
-async def passou_command(interaction: discord.Interaction, target: discord.Member) -> None:
+async def passou(interaction: discord.Interaction, target: discord.Member) -> None:
     """
     Comando /passou: o autor do comando acusa 'target' de ter se passado.
     Cria um embed público com botões "Sim", "Não" e (posteriormente) "Condenar".
