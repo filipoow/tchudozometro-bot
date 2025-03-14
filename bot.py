@@ -61,35 +61,50 @@ class RoleSelectionView(View):
         return callback
 
 class PassouView(discord.ui.View):
-    """View com botões: Sim, Não e, quando houver votos suficientes, Condenar."""
+    """View com botões: Sim, Não e, quando houver votos suficientes, Condenar.
+       Permite que cada usuário vote apenas uma vez.
+    """
     def __init__(self, accuser: discord.Member, accused: discord.Member):
         super().__init__(timeout=None)  # Sem timeout (ou defina um se preferir)
         self.accuser = accuser
         self.accused = accused
         self.sim_count = 0
         self.nao_count = 0
+        self.voted = set()  # Armazena os IDs dos usuários que já votaram
 
     def create_embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title="Se Passou ou não se passou?",
+            title="Passou ou não passou?",
             description=f"{self.accuser.mention} acha que {self.accused.mention} se passou demais!",
             color=discord.Color.orange()
         )
         embed.set_image(url="https://i.gifer.com/72gi.gif")
-        embed.add_field(name="Acho... que sim", value=str(self.sim_count), inline=True)
-        embed.add_field(name="Não....", value=str(self.nao_count), inline=True)
+        embed.add_field(name="Sim", value=str(self.sim_count), inline=True)
+        embed.add_field(name="Não", value=str(self.nao_count), inline=True)
         return embed
 
     @discord.ui.button(label="Sim", style=discord.ButtonStyle.success)
     async def sim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id in self.voted:
+            await interaction.response.send_message("Você já votou!", ephemeral=True)
+            return
+
+        self.voted.add(interaction.user.id)
         self.sim_count += 1
+
         # Habilita o botão 'Condenar' se houver pelo menos 2 votos de "Sim"
         if self.sim_count >= 2:
             self.condenar_button.disabled = False
+
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="Não", style=discord.ButtonStyle.danger)
     async def nao_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id in self.voted:
+            await interaction.response.send_message("Você já votou!", ephemeral=True)
+            return
+
+        self.voted.add(interaction.user.id)
         self.nao_count += 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
