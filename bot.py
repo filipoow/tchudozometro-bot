@@ -35,6 +35,21 @@ tree = bot.tree  # Slash commands
 #             CONFIGURAÇÃO INICIAL DO BOT
 # --------------------------------------------------
 
+@tree.command(name="passou", description="Inicia uma votação para ver se alguém se passou demais.")
+async def passou(interaction: discord.Interaction, target: discord.Member) -> None:
+    """
+    Comando /passou: o autor do comando acusa 'target' de ter se passado.
+    Cria um embed público com botões "Sim", "Não" e (posteriormente) "Condenar".
+    """
+    accuser = interaction.user  # Quem acusa
+    accused = target            # Quem está sendo acusado
+
+    view = PassouView(accuser, accused)
+    embed = view.create_embed()
+
+    # Envia a mensagem com o embed e a view (votação)
+    await interaction.response.send_message(embed=embed, view=view)
+
 @bot.event
 async def on_ready() -> None:
     """Executado quando o bot está pronto."""
@@ -560,21 +575,6 @@ class PassouView(discord.ui.View):
             child.disabled = True
         # Edita a mensagem original para refletir que os botões estão desabilitados
         await interaction.message.edit(view=self)
-
-@tree.command(name="passou", description="Inicia uma votação para ver se alguém se passou demais.")
-async def passou(interaction: discord.Interaction, target: discord.Member) -> None:
-    """
-    Comando /passou: o autor do comando acusa 'target' de ter se passado.
-    Cria um embed público com botões "Sim", "Não" e (posteriormente) "Condenar".
-    """
-    accuser = interaction.user  # Quem acusa
-    accused = target            # Quem está sendo acusado
-
-    view = PassouView(accuser, accused)
-    embed = view.create_embed()
-
-    # Envia a mensagem com o embed e a view (votação)
-    await interaction.response.send_message(embed=embed, view=view)
 
 # --------------------------------------------------
 #                INICIAR O BOT
