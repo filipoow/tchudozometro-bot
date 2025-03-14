@@ -71,12 +71,13 @@ class PassouView(discord.ui.View):
 
     def create_embed(self) -> discord.Embed:
         embed = discord.Embed(
-            title="Passou ou não passou?",
+            title="Se Passou ou não se passou?",
             description=f"{self.accuser.mention} acha que {self.accused.mention} se passou demais!",
             color=discord.Color.orange()
         )
-        embed.add_field(name="Sim", value=str(self.sim_count), inline=True)
-        embed.add_field(name="Não", value=str(self.nao_count), inline=True)
+        embed.set_image(url="https://i.gifer.com/72gi.gif")
+        embed.add_field(name="Acho... que sim", value=str(self.sim_count), inline=True)
+        embed.add_field(name="Não....", value=str(self.nao_count), inline=True)
         return embed
 
     @discord.ui.button(label="Sim", style=discord.ButtonStyle.success)
