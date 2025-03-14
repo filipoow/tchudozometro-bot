@@ -226,8 +226,15 @@ async def level(interaction: discord.Interaction) -> None:
 @bot.event
 async def on_ready() -> None:
     print(f'✅ Bot {bot.user.name} está online!' if bot.user else "Bot está online!")
-    await bot.tree.sync()
-    print("📌 Slash commands sincronizados!")
+    try:
+        synced = await bot.tree.sync()
+        print(f"📌 Sincronizados {len(synced)} comandos slash!")
+
+        # Listar os comandos sincronizados
+        for command in synced:
+            print(f"- {command.name}")
+    except Exception as e:
+        print(f"❌ Erro ao sincronizar comandos: {e}")
 
     for guild in bot.guilds:
         if str(guild.id) not in server_settings:
